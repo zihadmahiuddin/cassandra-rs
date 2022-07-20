@@ -510,9 +510,12 @@ fn test_error_reporting() {
         .execute(&query)
         .wait()
         .expect_err("Should have failed!");
-    println!("Got error {} kind {:?}", err, err.kind());
-    match *err.kind() {
-        ErrorKind::CassError(CassErrorCode::LIB_NO_HOSTS_AVAILABLE, _) => (),
+    println!("Got error {}", err);
+    match err {
+        Error::CassError {
+            code: CassErrorCode::LIB_NO_HOSTS_AVAILABLE,
+            ..
+        } => (),
         ref k => panic!("Unexpected error kind {}", k),
     }
 
@@ -522,21 +525,12 @@ fn test_error_reporting() {
         .execute(&query)
         .wait()
         .expect_err("Should have failed!");
-    println!("Got error {} kind {:?}", err, err.kind());
-    match *err.kind() {
-        ErrorKind::CassErrorResult(
-            CassErrorCode::SERVER_INVALID_QUERY,
-            _,
-            _,
-            -1,
-            -1,
-            -1,
-            _,
-            _,
-            _,
-            _,
-            _,
-        ) => (),
+    println!("Got error {}", err);
+    match err {
+        Error::CassErrorResult {
+            code: CassErrorCode::SERVER_INVALID_QUERY,
+            ..
+        } => (),
         ref k => panic!("Unexpected error kind {}", k),
     }
 
@@ -554,9 +548,9 @@ fn test_error_reporting() {
         .unwrap()
         .get_string()
         .expect_err("Should have failed");
-    println!("Got error {} kind {:?}", err, err.kind());
-    match *err.kind() {
-        ErrorKind::InvalidUtf8(_) => (),
+    println!("Got error {}", err);
+    match err {
+        Error::InvalidUtf8(_) => (),
         ref k => panic!("Unexpected error kind {}", k),
     }
 }

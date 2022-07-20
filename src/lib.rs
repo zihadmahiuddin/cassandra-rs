@@ -9,8 +9,6 @@
 
 #[macro_use]
 extern crate slog;
-#[macro_use]
-extern crate error_chain;
 
 use cassandra_cpp_sys as cassandra_sys;
 

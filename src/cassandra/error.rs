@@ -27,49 +27,75 @@ use std::fmt::{Debug, Display, Formatter};
 use std::os::raw::c_char;
 use std::{fmt, mem, slice, str};
 
-// Define the errors that may be returned by this driver.
-error_chain! {
-    foreign_links {
-        StringContainsNul(::std::ffi::NulError)
-            #[doc = "Attempted to pass a string containing `\\0` to Cassandra"];
-
-        InvalidUtf8(::std::str::Utf8Error)
-            #[doc = "Attempted to decode an invalid UTF-8-encoded string"];
-    }
-
-    errors {
-        /// Cassandra error.
-        CassError(code: CassErrorCode, msg: String) {
-            description("Cassandra error")
-            display("Cassandra error {:?}: {}", &code, &msg)
-        }
-
-        /// Cassandra error result with extended information.
-        CassErrorResult(
-            code: CassErrorCode,
-            msg: String,
-            consistency: Consistency,
-            actual: i32,
-            required: i32,
-            num_failures: i32,
-            data_present: bool,
-            write_type: WriteType,
-            keyspace: Option<String>,
-            table: Option<String>,
-            function: Option<(String, Vec<String>)>
-        ) {
-            description("Cassandra detailed error")
-            display("Cassandra detailed error {:?}: {}", &code, &msg)
-        }
-
-        /// Unsupported type encountered.
-        UnsupportedType(expected: &'static str, actual: ValueType) {
-            description("Unsupported type")
-            display("Unsupported type {}; expected {}", actual, expected)
-        }
-
-    }
+/// Foreign Link Error
+#[derive(Debug, thiserror::Error)]
+pub enum ForeignLinkError {
+    /// String containing null character
+    #[error("Attempted to pass a string containing `\\0` to Cassandra")]
+    StringContainsNul(::std::ffi::NulError),
+    /// Invalid UTF-8 string
+    #[error("Attempted to decode an invalid UTF-8-encoded string")]
+    InvalidUtf8(::std::str::Utf8Error),
 }
+
+/// Cassandra Error
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// Foreign Link Error
+    #[error("{0}")]
+    ForeignLinkError(#[from] ForeignLinkError),
+    /// Cassandra error.
+    #[error("Cassandra error {code:?}: {msg}")]
+    CassError {
+        /// Error code
+        code: CassErrorCode,
+        /// Error message
+        msg: String,
+    },
+    /// Cassandra error result with extended information.
+    #[error("Cassandra detailed error {code:?}: {msg}")]
+    CassErrorResult {
+        /// Error code
+        code: CassErrorCode,
+        /// Error message
+        msg: String,
+        /// Cassandra consistency level
+        consistency: Consistency,
+        /// TODO
+        actual: i32,
+        /// TODO
+        required: i32,
+        /// TODO
+        num_failures: i32,
+        /// TODO
+        data_present: bool,
+        /// TODO
+        write_type: WriteType,
+        /// Cassandra keyspace
+        keyspace: Option<String>,
+        /// Cassandra table
+        table: Option<String>,
+        /// TODO
+        function: Option<(String, Vec<String>)>,
+    },
+    /// Unsupported type encountered.
+    #[error("Unsupported type {actual}; expected {expected}")]
+    UnsupportedType {
+        /// Expected type
+        expected: &'static str,
+        /// Actual type
+        actual: ValueType,
+    },
+    /// String containing null character
+    #[error("Attempted to pass a string containing `\\0` to Cassandra")]
+    StringContainsNul(#[from] ::std::ffi::NulError),
+    /// Invalid UTF-8 string
+    #[error("Attempted to decode an invalid UTF-8-encoded string")]
+    InvalidUtf8(#[from] ::std::str::Utf8Error),
+}
+
+/// Result type where E is the [Error] from this crate
+pub type Result<T> = std::result::Result<T, Error>;
 
 /// Extension trait for `CassError_`.
 pub(crate) trait CassErrorExt {
@@ -89,7 +115,10 @@ impl CassErrorExt for CassError_ {
                     let message = CStr::from_ptr(cass_error_desc(*self))
                         .to_string_lossy()
                         .into_owned();
-                    Err(ErrorKind::CassError(CassErrorCode::build(*self), message).into())
+                    Err(Error::CassError {
+                        code: CassErrorCode::build(*self),
+                        msg: message,
+                    })
                 }
             }
         }
@@ -100,7 +129,10 @@ impl CassErrorExt for CassError_ {
             let message = CStr::from_ptr(cass_error_desc(*self))
                 .to_string_lossy()
                 .into_owned();
-            ErrorKind::CassError(CassErrorCode::build(*self), message).into()
+            Error::CassError {
+                code: CassErrorCode::build(*self),
+                msg: message,
+            }
         }
     }
 }
@@ -122,7 +154,7 @@ pub(crate) unsafe fn build_error_result(
 ) -> Error {
     if e.is_null() {
         // No extended error available; just take the basic one.
-        ErrorKind::CassError(code, message).into()
+        Error::CassError { code, msg: message }
     } else {
         // Get the extended error.
         let consistency = Consistency::build(cass_error_result_consistency(e));
@@ -147,9 +179,9 @@ pub(crate) unsafe fn build_error_result(
             (function, args)
         });
         cass_error_result_free(e);
-        ErrorKind::CassErrorResult(
+        Error::CassErrorResult {
             code,
-            message,
+            msg: message,
             consistency,
             actual,
             required,
@@ -158,9 +190,8 @@ pub(crate) unsafe fn build_error_result(
             write_type,
             keyspace,
             table,
-            function_call,
-        )
-        .into()
+            function: function_call,
+        }
     }
 }
 
